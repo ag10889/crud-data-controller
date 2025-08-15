@@ -54,7 +54,7 @@ let pool;
 })();
 
 // Routes
-app.get("/api/data", async (_req, res) => {
+app.get("/api/data", async (_req, res, next) => {
   try {
     if (!pool) throw new Error("DB not ready");
     const [rows] = await pool.query(`SELECT * FROM \`${TABLE_NAME}\``);
@@ -64,20 +64,57 @@ app.get("/api/data", async (_req, res) => {
   }
 });
 
-app.get("/api/data/companies", async (_req, res) => {
-    try {
-        if (!pool) throw new Error("DB not ready");
-        const [rows] = await pool.query(`SELECT company FROM \`${TABLE_NAME}\``);
-        let output = rows.map(row => row.company).filter(Boolean);
-        res.send(output);
-    }   catch (err) {
-        next(err);
+
+app.post("/api/post", async (req, res, next) => {
+  try {
+    if (!pool) throw new Error("DB not ready");
+
+    const payload = req.body ?? {};
+
+    // Ensure all required columns are present in the body
+    const missing = EDITABLE_COLS.filter((c) => payload[c] === undefined);
+    if (missing.length) {
+      return res.status(400).json({
+        message: `Missing required fields: ${missing.join(", ")}`,
+        required: EDITABLE_COLS,
+      });
     }
+
+    const cols = EDITABLE_COLS.map((c) => `\`${c}\``).join(",");
+    const placeholders = EDITABLE_COLS.map(() => "?").join(",");
+    const values = EDITABLE_COLS.map((c) => payload[c]);
+
+    const [result] = await pool.query(
+      `INSERT INTO \`${TABLE_NAME}\` (${cols}) VALUES (${placeholders})`,
+      values
+    );
+
+    // Fetch and return the inserted row
+    const [rows] = await pool.query(
+      `SELECT * FROM \`${TABLE_NAME}\` WHERE \`${PK_NAME}\` = ?`,
+      [result.insertId]
+    );
+
+    return res.status(201).json(rows[0] ?? { [PK_NAME]: result.insertId });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+app.get("/api/data/companies", async (_req, res, next) => {
+  try {
+    if (!pool) throw new Error("DB not ready");
+    const [rows] = await pool.query(`SELECT company FROM \`${TABLE_NAME}\``);
+    let output = rows.map(row => row.company).filter(Boolean);
+    res.send(output);
+  }   catch (err) {
+    next(err);
+  }
 });
 
 app.get("/api/test" , async (_req, res) => {
-    let output = "Hello World!!!";
-    res.json(output);
+  let output = "Hello World!!!";
+  res.json(output);
 })
 
 // Basic error guard
