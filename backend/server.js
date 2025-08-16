@@ -21,18 +21,23 @@ const {
 } = process.env;
 
 // Validate required envs BEFORE using them
-if (!DB_HOST || !DB_USER || !DB_PASS || !DB_NAME || !DB_PORT || !COLUMNS) {
-  console.error("Check database value configuration in the .env file");
+if (!DB_HOST || !DB_USER || !DB_PASS || !DB_NAME || !DB_PORT || !COLUMNS || !TABLE_NAME || !PK_NAME) {
+  console.error("Missing required .env values. Needed: DB_HOST, DB_USER, DB_PASS, DB_NAME, DB_PORT, COLUMNS, TABLE_NAME, PK_NAME");
   process.exit(1);
 }
-if (TABLE_NAME !== "internship_applications") {
-  console.warn("Check your table name");
-}
-if (PK_NAME !== "id") {
-  console.warn("Check your primary key column name");
-}
-
 const EDITABLE_COLS = COLUMNS.split(",").map(s => s.trim()).filter(Boolean);
+if (!EDITABLE_COLS.length) {
+  console.error("COLUMNS must list at least one non-empty column name");
+  process.exit(1);
+}
+if (EDITABLE_COLS.includes(PK_NAME)) {
+  console.error("COLUMNS must NOT include the primary key column");
+  process.exit(1);
+}
+if (![TABLE_NAME, PK_NAME, ...EDITABLE_COLS].every(c => /^[A-Za-z0-9_]+$/.test(c))) {
+  console.error("Only alphanumeric and underscore are allowed in TABLE_NAME/PK_NAME/COLUMNS");
+  process.exit(1);
+}
 
 let pool;
 (async () => {
@@ -47,6 +52,9 @@ let pool;
       connectionLimit: 10,
     });
     console.log("DB pool initialized");
+    app.listen(Number(PORT), () =>
+      console.log(`API running → http://localhost:${PORT}`)
+    );
   } catch (err) {
     console.error("Failed to init DB pool:", err);
     process.exit(1);
@@ -89,14 +97,22 @@ app.post("/api/post", async (req, res, next) => {
       values
     );
 
-    // Fetch and return the inserted row
+    // Prefer insertId if present; otherwise fall back to PK from payload (for non-AI PKs)
+    const pkValue = result.insertId || payload[PK_NAME];
+    if (pkValue === undefined) {
+      return res.status(201).json({ message: "Created", affectedRows: result.affectedRows });
+    }
+
     const [rows] = await pool.query(
       `SELECT * FROM \`${TABLE_NAME}\` WHERE \`${PK_NAME}\` = ?`,
-      [result.insertId]
+      [pkValue]
     );
 
-    return res.status(201).json(rows[0] ?? { [PK_NAME]: result.insertId });
+    return res.status(201).json(rows[0] ?? { [PK_NAME]: pkValue });
   } catch (err) {
+    if (err && err.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: "Duplicate key" });
+    }
     return next(err);
   }
 });
@@ -123,6 +139,3 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Server error" });
 });
 
-app.listen(Number(PORT), () =>
-  console.log(`API running → http://localhost:${PORT}`)
-);
