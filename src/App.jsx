@@ -6,6 +6,10 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState('system') // 'light' | 'dark' | 'system'
   const [view, setView] = useState('table') // 'table' | 'cards'
+  const [showAdd, setShowAdd] = useState(false)
+  const [form, setForm] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [submitErr, setSubmitErr] = useState('')
 
   // Theme: hydrate from localStorage / system and reflect on <html>
   useEffect(() => {
@@ -60,14 +64,69 @@ function App() {
     return { total, companyCount, statusMap }
   }, [applications])
 
+  function openAdd() {
+    // Prefer dynamic fields from existing data; otherwise fall back to common fields
+    const preferred = ['company', 'position', 'status', 'link']
+    let fields = []
+    if (columns.length) {
+      fields = columns.filter(
+        (k) => k !== 'id' && !/created|updated/i.test(k)
+      )
+    } else {
+      fields = preferred
+    }
+    const init = {}
+    fields.forEach((k) => (init[k] = ''))
+    // Provide a sensible default for status if present
+    if ('status' in init) init.status = 'applied'
+    setForm(init)
+    setShowAdd(true)
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setSubmitting(true)
+    setSubmitErr('')
+    try {
+      const res = await fetch('http://localhost:5000/api/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(`HTTP ${res.status} – ${text}`)
+      }
+      const created = await res.json()
+      setApplications((prev) => [created, ...prev])
+      setShowAdd(false)
+    } catch (err) {
+      setSubmitErr(err.message || 'Failed to save')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     
     <div className="min-h-screen bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-gray-900 dark:text-gray-100">
       {/* Top Bar */}
       <header className="sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-gray-900/60 bg-white/90 dark:bg-gray-900/90 border-b border-gray-200 dark:border-gray-800">
-        <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-6xl px-4 py-4 grid grid-cols-3 items-center">
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Internship Applications</h1>
-          <div className="flex items-center gap-2">
+
+          <div className="justify-self-center">
+            <button
+              onClick={openAdd}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-800/70 px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <span>➕</span>
+              <span className="hidden sm:inline">Add Application</span>
+              <span className="sm:hidden">Add</span>
+            </button>
+          </div>
+
+          <div className="justify-self-end flex items-center gap-2">
             <ViewToggle view={view} setView={setView} />
             <ThemeToggle theme={theme} setTheme={setTheme} />
           </div>
@@ -99,6 +158,70 @@ function App() {
           )}
         </section>
       </main>
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowAdd(false)}
+          />
+          <div className="relative w-full max-w-lg rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 p-6 shadow-xl">
+            <h2 className="text-lg font-semibold">Add Application</h2>
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+              {Object.keys(form).length === 0 && (
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  No fields detected yet. Click again after data loads, or ensure your API exposes sample data.
+                </p>
+              )}
+              {Object.keys(form).map((k) => (
+                <div key={k}>
+                  <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1 capitalize">
+                    {k}
+                  </label>
+                  {k === 'status' ? (
+                    <select
+                      value={form[k]}
+                      onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring"
+                    >
+                      {['applied', 'interview', 'accepted', 'rejected', 'pending'].map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={k.toLowerCase().includes('date') ? 'date' : 'text'}
+                      value={form[k]}
+                      onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring"
+                      placeholder={k}
+                      required
+                    />
+                  )}
+                </div>
+              ))}
+              {submitErr && (
+                <p className="text-sm text-rose-600">{submitErr}</p>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdd(false)}
+                  className="rounded-xl px-3 py-2 text-sm border border-gray-300 dark:border-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || Object.keys(form).length === 0}
+                  className="rounded-xl bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 px-4 py-2 text-sm font-medium disabled:opacity-60"
+                >
+                  {submitting ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

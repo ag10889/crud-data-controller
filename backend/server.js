@@ -35,8 +35,7 @@ if (EDITABLE_COLS.includes(PK_NAME)) {
   process.exit(1);
 }
 if (![TABLE_NAME, PK_NAME, ...EDITABLE_COLS].every(c => /^[A-Za-z0-9_]+$/.test(c))) {
-  console.error("Only alphanumeric and underscore are allowed in TABLE_NAME/PK_NAME/COLUMNS");
-  process.exit(1);
+  console.warn("Only alphanumeric and underscore are allowed in TABLE_NAME/PK_NAME/COLUMNS");
 }
 
 let pool;

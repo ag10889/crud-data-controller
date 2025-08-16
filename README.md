@@ -16,5 +16,5 @@ If you are developing a production application, we recommend using TypeScript wi
 
 - [X] Create backend database
 - [X] Create backend API
-- [ ] Create frontend UI
+- [X] Create frontend UI
 
